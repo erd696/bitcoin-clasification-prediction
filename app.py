@@ -175,20 +175,63 @@ def focal_loss(gamma=2.5, alpha=0.5, label_smoothing=0.05):
 # ============================================================
 # FETCH DATA HISTORIS OTOMATIS
 # ============================================================
-@st.cache_data(ttl=3600)  # cache 1 jam
+@st.cache_data(ttl=1800)  # cache 30 menit
 def fetch_historical_data():
-    """Ambil 120 hari terakhir BTC dari Yahoo Finance."""
-    df = yf.download(
-        "BTC-USD",
-        period="max",
-        interval="1d",
-        auto_adjust=False,
-        progress=False
-    )
-    df.index = pd.to_datetime(df.index).tz_localize(None)
-    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
-    return df.sort_index()
+    """Ambil data historis BTC dari Yahoo Finance dengan retry logic."""
+    import time
+
+    last_exc = None
+    for attempt in range(3):
+        try:
+            if attempt > 0:
+                time.sleep(8 * attempt)  # tunggu 8s, 16s sebelum retry
+
+            df = yf.download(
+                "BTC-USD",
+                period="max",
+                interval="1d",
+                auto_adjust=False,
+                progress=False
+            )
+
+            # Validasi: jika df kosong (rate limit / network error), coba lagi
+            if df is None or df.empty:
+                last_exc = ValueError(
+                    "Yahoo Finance mengembalikan data kosong. "
+                    "Kemungkinan rate-limited — coba refresh halaman dalam 1-2 menit."
+                )
+                continue
+
+            # Normalize kolom (yfinance baru pakai MultiIndex)
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+
+            missing = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c not in df.columns]
+            if missing:
+                raise ValueError(f"Kolom tidak lengkap dari Yahoo Finance: {missing}")
+
+            df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+            df = df.dropna(how="all").sort_index()
+
+            if df.empty:
+                last_exc = ValueError("Data setelah pembersihan masih kosong.")
+                continue
+
+            return df
+
+        except Exception as e:
+            err_str = str(e)
+            # Rate limit: tunggu lebih lama
+            if any(k in err_str for k in ["Rate", "429", "Too Many"]):
+                last_exc = ValueError(
+                    f"Yahoo Finance rate-limit (percobaan {attempt+1}/3). "
+                    "Tunggu sebentar lalu refresh halaman."
+                )
+                time.sleep(15 * (attempt + 1))
+            else:
+                last_exc = e
+
+    raise last_exc or RuntimeError("Gagal mengambil data setelah 3 percobaan.")
 
 
 # ============================================================
@@ -361,8 +404,19 @@ with st.spinner("Mengambil data historis BTC dari Yahoo Finance..."):
         </div>
         """, unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"❌ Gagal mengambil data historis: {e}")
-        st.info("Pastikan koneksi internet aktif.")
+        err_msg = str(e)
+        st.error(f"❌ Gagal mengambil data historis: {err_msg}")
+        if any(k in err_msg for k in ["rate", "Rate", "429", "Too Many", "kosong"]):
+            st.warning(
+                "⏳ **Yahoo Finance sedang membatasi permintaan (rate limit).**\n\n"
+                "Ini umum terjadi di Streamlit Cloud karena banyak app berbagi IP yang sama. "
+                "Silakan tunggu **1–2 menit** lalu klik tombol di bawah untuk mencoba lagi."
+            )
+            if st.button("🔄 Coba Lagi Sekarang"):
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            st.info("Pastikan koneksi internet aktif dan coba refresh halaman.")
         st.stop()
 
 st.markdown("""
