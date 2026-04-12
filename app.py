@@ -318,7 +318,7 @@ def load_knn(safe_conf):
 # KONFIGURASI BEST SPLIT PER MODEL (dari hasil eksperimen CSV)
 # ============================================================
 BEST_SPLIT = {
-    "LSTM":           "TS 90:10",   # F1: 0.6954
+    "LSTM":           "TS 70:30",   # F1: 0.6954
     "Random Forest":  "TS 70:30",   # F1: 0.6656
     "KNN":            "TS 70:30",   # F1: 0.6580
 }
