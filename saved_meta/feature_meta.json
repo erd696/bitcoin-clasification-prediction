@@ -1,0 +1,23 @@
+{
+  "ohlcv_cols": [
+    "Close",
+    "Open",
+    "EMA_10",
+    "RSI_14",
+    "STOCH_14",
+    "PROC",
+    "Std_20",
+    "Volume_Change"
+  ],
+  "best_k_vmd": {
+    "TS 70:30": 5,
+    "TS 80:20": 5,
+    "TS 90:10": 5
+  },
+  "timesteps": 30,
+  "vmd_alpha": 2000,
+  "vmd_tau": 0.0,
+  "vmd_DC": 0,
+  "vmd_init": 1,
+  "vmd_tol": 1e-07
+}

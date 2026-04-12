@@ -1,0 +1,47 @@
+{
+  "TS 70:30": [
+    "Close",
+    "Open",
+    "EMA_10",
+    "RSI_14",
+    "STOCH_14",
+    "PROC",
+    "Std_20",
+    "Volume_Change",
+    "VMD_1",
+    "VMD_2",
+    "VMD_3",
+    "VMD_4",
+    "VMD_5"
+  ],
+  "TS 80:20": [
+    "Close",
+    "Open",
+    "EMA_10",
+    "RSI_14",
+    "STOCH_14",
+    "PROC",
+    "Std_20",
+    "Volume_Change",
+    "VMD_1",
+    "VMD_2",
+    "VMD_3",
+    "VMD_4",
+    "VMD_5"
+  ],
+  "TS 90:10": [
+    "Close",
+    "Open",
+    "EMA_10",
+    "RSI_14",
+    "STOCH_14",
+    "PROC",
+    "Std_20",
+    "Volume_Change",
+    "VMD_1",
+    "VMD_2",
+    "VMD_3",
+    "VMD_4",
+    "VMD_5"
+  ]
+}
