@@ -445,17 +445,24 @@ selected_date = st.date_input(
     "📅 Pilih Tanggal",
     value=valid_dates_list[0],
     min_value=valid_dates_list[-1],
-    max_value=(pd.Timestamp.now() - pd.Timedelta(days=1)).date(),  # selalu kemarin, lepas dari cache df_hist
+    max_value=(pd.Timestamp.now() - pd.Timedelta(days=1)).date(),
     help="Hanya tanggal dengan data penutupan lengkap yang tersedia",
     format="DD/MM/YYYY"
 )
 
 # Cek apakah tanggal dipilih ada di data historis
+# Jika tidak ada, otomatis snap ke tanggal valid terdekat sebelumnya
 selected_ts = pd.Timestamp(selected_date)
 if selected_ts not in df_hist.index:
-    st.warning(f"⚠️ Tanggal **{selected_date.strftime('%d %b %Y')}** tidak tersedia dalam data "
-               f"(mungkin hari libur/weekend). Silakan pilih tanggal lain.")
-    st.stop()
+    available_before = df_hist.index[df_hist.index < selected_ts]
+    if available_before.empty:
+        st.error("❌ Tidak ada data historis yang tersedia sebelum tanggal yang dipilih.")
+        st.stop()
+    selected_ts = available_before[-1]
+    st.info(
+        f"ℹ️ Data untuk **{selected_date.strftime('%d %b %Y')}** belum tersedia di Yahoo Finance. "
+        f"Menggunakan data terakhir yang tersedia: **{selected_ts.strftime('%d %b %Y')}**"
+    )
 
 # Auto-fill OHLCV dari data historis
 row        = df_hist.loc[selected_ts]
