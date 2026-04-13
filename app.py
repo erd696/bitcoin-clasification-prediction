@@ -434,10 +434,11 @@ Data akan terisi otomatis, lalu model memprediksi apakah harga BTC akan
 st.markdown("### <span class='step-badge'>01</span> Pilih Tanggal Data", unsafe_allow_html=True)
 st.caption("Pilih tanggal dengan data OHLCV lengkap. Model akan memprediksi arah harga hari berikutnya.")
 
-# Daftar tanggal valid = semua tanggal di df_hist
-# Yahoo Finance secara otomatis hanya mengembalikan candle yang sudah selesai (completed daily bars),
-# sehingga tidak perlu filter manual "exclude today".
+# Daftar tanggal valid = semua tanggal di df_hist KECUALI hari ini
+# (closing hari ini belum tersedia sampai market tutup)
+today = pd.Timestamp.now().normalize()
 valid_dates = df_hist.index.normalize().unique().sort_values(ascending=False)
+valid_dates = valid_dates[valid_dates < today]  # exclude today
 valid_dates_list = [d.date() for d in valid_dates]
 
 selected_date = st.date_input(
@@ -450,11 +451,18 @@ selected_date = st.date_input(
 )
 
 # Cek apakah tanggal dipilih ada di data historis
+# Jika tidak ada (misal Yahoo Finance belum update), otomatis snap ke tanggal valid terdekat sebelumnya
 selected_ts = pd.Timestamp(selected_date)
 if selected_ts not in df_hist.index:
-    st.warning(f"⚠️ Tanggal **{selected_date.strftime('%d %b %Y')}** tidak tersedia dalam data "
-               f"(mungkin hari libur/weekend). Silakan pilih tanggal lain.")
-    st.stop()
+    available_before = df_hist.index[df_hist.index < selected_ts]
+    if available_before.empty:
+        st.error("❌ Tidak ada data historis yang tersedia sebelum tanggal yang dipilih.")
+        st.stop()
+    selected_ts = available_before[-1]
+    st.info(
+        f"ℹ️ Data untuk **{selected_date.strftime('%d %b %Y')}** belum tersedia di Yahoo Finance. "
+        f"Menggunakan data terakhir yang tersedia: **{selected_ts.strftime('%d %b %Y')}**"
+    )
 
 # Auto-fill OHLCV dari data historis
 row        = df_hist.loc[selected_ts]
