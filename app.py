@@ -434,11 +434,10 @@ Data akan terisi otomatis, lalu model memprediksi apakah harga BTC akan
 st.markdown("### <span class='step-badge'>01</span> Pilih Tanggal Data", unsafe_allow_html=True)
 st.caption("Pilih tanggal dengan data OHLCV lengkap. Model akan memprediksi arah harga hari berikutnya.")
 
-# Daftar tanggal valid = semua tanggal di df_hist KECUALI hari ini
-# (closing hari ini belum tersedia sampai market tutup)
-today = pd.Timestamp.now().normalize()
+# Daftar tanggal valid = semua tanggal di df_hist
+# Yahoo Finance secara otomatis hanya mengembalikan candle yang sudah selesai (completed daily bars),
+# sehingga tidak perlu filter manual "exclude today".
 valid_dates = df_hist.index.normalize().unique().sort_values(ascending=False)
-valid_dates = valid_dates[valid_dates < today]  # exclude today
 valid_dates_list = [d.date() for d in valid_dates]
 
 selected_date = st.date_input(
