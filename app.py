@@ -5,10 +5,8 @@ import joblib
 import json
 import re
 import os
-import tensorflow as tf
 import yfinance as yf
 from vmdpy import VMD
-from tensorflow.keras.layers import LSTM as DefaultLSTM
 
 # ============================================================
 # KONFIGURASI HALAMAN
@@ -122,6 +120,24 @@ h1, h2, h3 { font-family: 'Space Mono', monospace !important; }
 
 
 # ============================================================
+# KONSTANTA MODEL TERBAIK (RF 70:30)
+# — Dipilih berdasarkan evaluasi komprehensif:
+#   F1=0.6656 (tertinggi seimbang), Acc=0.6519,
+#   Prec-Recall gap terkecil (0.0546), stabilitas ±0.0325
+# ============================================================
+MODEL_NAME  = "Random Forest"
+SPLIT       = "TS 70:30"
+SAFE_SPLIT  = "TS_70_30"
+
+MODEL_PERF = {
+    "Acc":  "0.6519",
+    "Prec": "0.6394",
+    "Rec":  "0.6940",
+    "F1":   "0.6656",
+}
+
+
+# ============================================================
 # FUNGSI HELPER
 # ============================================================
 def safe_filename(name):
@@ -155,27 +171,11 @@ def apply_vmd_global(series, K, alpha=2000, tau=0., DC=0, init=1, tol=1e-7):
     modes = {f"VMD_{i+1}": u[i][:min_len] for i in range(K)}
     return pd.DataFrame(modes, index=series.index[:min_len])
 
-def make_sequence(X_arr, steps):
-    seq = X_arr[-steps:]
-    return seq.reshape(1, steps, X_arr.shape[1]).astype(np.float32)
-
-def focal_loss(gamma=2.5, alpha=0.5, label_smoothing=0.05):
-    def loss_fn(y_true, y_pred):
-        y_true_smooth = y_true * (1 - label_smoothing) + 0.5 * label_smoothing
-        y_pred        = tf.clip_by_value(y_pred, 1e-7, 1 - 1e-7)
-        alpha_t       = y_true_smooth * alpha + (1 - y_true_smooth) * (1 - alpha)
-        bce           = -y_true_smooth * tf.math.log(y_pred) \
-                        - (1 - y_true_smooth) * tf.math.log(1 - y_pred)
-        p_t           = y_true_smooth * y_pred + (1 - y_true_smooth) * (1 - y_pred)
-        focal_weight  = alpha_t * tf.pow(1 - p_t, gamma)
-        return tf.reduce_mean(focal_weight * bce)
-    return loss_fn
-
 
 # ============================================================
 # FETCH DATA HISTORIS OTOMATIS
 # ============================================================
-@st.cache_data(ttl=1800)  # cache 30 menit
+@st.cache_data(ttl=1800)
 def fetch_historical_data():
     """Ambil data historis BTC dari Yahoo Finance dengan retry logic."""
     import time
@@ -184,7 +184,7 @@ def fetch_historical_data():
     for attempt in range(3):
         try:
             if attempt > 0:
-                time.sleep(8 * attempt)  # tunggu 8s, 16s sebelum retry
+                time.sleep(8 * attempt)
 
             df = yf.download(
                 "BTC-USD",
@@ -194,7 +194,6 @@ def fetch_historical_data():
                 progress=False
             )
 
-            # Validasi: jika df kosong (rate limit / network error), coba lagi
             if df is None or df.empty:
                 last_exc = ValueError(
                     "Yahoo Finance mengembalikan data kosong. "
@@ -202,7 +201,6 @@ def fetch_historical_data():
                 )
                 continue
 
-            # Normalize kolom (yfinance baru pakai MultiIndex)
             df.index = pd.to_datetime(df.index).tz_localize(None)
             df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
 
@@ -221,7 +219,6 @@ def fetch_historical_data():
 
         except Exception as e:
             err_str = str(e)
-            # Rate limit: tunggu lebih lama
             if any(k in err_str for k in ["Rate", "429", "Too Many"]):
                 last_exc = ValueError(
                     f"Yahoo Finance rate-limit (percobaan {attempt+1}/3). "
@@ -248,50 +245,18 @@ def load_metadata():
     return meta, best_k
 
 @st.cache_resource
-def load_scaler(safe_conf):
+def load_scaler():
     from pathlib import Path
     base_dir   = Path(__file__).resolve().parent
-    model_path = base_dir / "saved_scalers" / f"scaler_{safe_conf}.joblib"
+    model_path = base_dir / "saved_scalers" / f"scaler_{SAFE_SPLIT}.joblib"
     return joblib.load(str(model_path))
 
-class CompatibleLSTM(DefaultLSTM):
-    def __init__(self, *args, **kwargs):
-        # Buang keyword yang bikin error jika ada
-        kwargs.pop('time_major', None)
-        super(CompatibleLSTM, self).__init__(*args, **kwargs)
-
 @st.cache_resource
-def load_lstm(safe_conf):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(base_dir, "saved_models_lstm", f"best_lstm_{safe_conf}.h5")
-    
-    if not os.path.exists(model_path):
-        st.error(f"File tidak ditemukan: {model_path}")
-        return None
-
-    try:
-        # Load model dengan 'mengganti' layer LSTM standar dengan versi buatan kita
-        model = tf.keras.models.load_model(
-            model_path,
-            custom_objects={
-                "loss_fn": focal_loss(gamma=2.5), 
-                "LSTM": CompatibleLSTM  # Ini kuncinya
-            },
-            compile=False
-        )
-        return model
-    except Exception as e:
-        st.error(f"Gagal memuat model: {str(e)}")
-        return None
-
-
-
-@st.cache_resource
-def load_rf(safe_conf):
+def load_rf():
     from pathlib import Path
     import traceback
     base_dir   = Path(__file__).resolve().parent
-    model_path = base_dir / "saved_models_rf" / f"best_rf_{safe_conf}.joblib"
+    model_path = base_dir / "saved_models_rf" / f"best_rf_{SAFE_SPLIT}.joblib"
     try:
         return joblib.load(str(model_path))
     except Exception as e:
@@ -299,88 +264,38 @@ def load_rf(safe_conf):
         st.code(traceback.format_exc())
         return None
 
-@st.cache_resource
-def load_knn(safe_conf):
-    from pathlib import Path
-    base_dir   = Path(__file__).resolve().parent
-    model_path = base_dir / "saved_models_knn" / f"best_knn_{safe_conf}.joblib"
-    try:
-        return joblib.load(str(model_path))
-    except FileNotFoundError:
-        st.error(f"❌ File KNN tidak ditemukan: {model_path}")
-        return None
-    except Exception as e:
-        st.error(f"❌ Gagal memuat model KNN: {str(e)}")
-        return None
-
 
 # ============================================================
-# KONFIGURASI BEST SPLIT PER MODEL (dari hasil eksperimen CSV)
-# ============================================================
-BEST_SPLIT = {
-    "LSTM":           "TS 90:10",
-    "Random Forest":  "TS 70:30",
-    "KNN":            "TS 90:10",
-}
-
-BEST_PERF = {
-    "LSTM": {
-        "split": "TS 90:10", "Acc": "0.666", "Prec": "0.72", "Rec": "0.566", "F1": "0.634"
-    },
-    "Random Forest": {
-        "split": "TS 70:30", "Acc": "0.652", "Prec": "0.639", "Rec": "0.694", "F1": "0.666"
-    },
-    "KNN": {
-        "split": "TS 70:10", "Acc": "0.681", "Prec": "0.741", "Rec": "0.588", "F1": "0.656"
-    },
-}
-
-# ============================================================
-# SIDEBAR
+# SIDEBAR — INFO MODEL TERBAIK
 # ============================================================
 with st.sidebar:
-    st.markdown("### ⚙️ Pengaturan Model")
+    st.markdown("### 🏆 Model Terbaik")
     st.markdown("---")
-
-    model_choice = st.selectbox(
-        "Pilih Model",
-        ["LSTM", "Random Forest", "KNN"],
-        index=0,
-        format_func=lambda x: {
-            "LSTM":          f"🥇 LSTM (F1: {BEST_PERF['LSTM']['F1']})",
-            "Random Forest": f"🥈 Random Forest (F1: {BEST_PERF['Random Forest']['F1']})",
-            "KNN":           f"🥉 KNN (F1: {BEST_PERF['KNN']['F1']})",
-        }[x]
-    )
-
-    # Auto-resolve split terbaik untuk model yang dipilih
-    split_choice = BEST_SPLIT[model_choice]
 
     st.markdown(f"""
     <div style='background:#1a1a2e;border-left:3px solid #F7931A;border-radius:6px;
-                padding:10px 14px;font-size:0.8rem;color:#ccc;margin-top:0.5rem;'>
-        🎯 <b>Split Otomatis:</b> <span style='color:#F7931A'>{split_choice}</span><br>
-        <span style='font-size:0.72rem;color:#888;'>
-            Split terbaik dipilih otomatis berdasarkan F1-Score tertinggi dari eksperimen.
-        </span>
+                padding:10px 14px;font-size:0.85rem;color:#ccc;margin-bottom:0.8rem;'>
+        🤖 <b>Algoritma:</b> <span style='color:#F7931A'>Random Forest</span><br>
+        🎯 <b>Split:</b> <span style='color:#F7931A'>TS 70:30</span>
+    </div>
+    <div style='font-size:0.75rem;color:#666;margin-bottom:1rem;'>
+        Dipilih berdasarkan evaluasi komprehensif: F1 tertinggi di antara model yang seimbang,
+        gap Precision-Recall terkecil (0,0546), dan stabilitas antar-skenario terbaik (±0,0325).
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("#### 📊 Performa Terbaik")
-
-    p = BEST_PERF[model_choice]
+    st.markdown("#### 📊 Performa Model")
     st.markdown(f"""
-    <div style='font-size:0.8rem;color:#aaa;line-height:1.9'>
-    Accuracy &nbsp;: <b style='color:#F7931A'>{p['Acc']}</b><br>
-    Precision : <b style='color:#F7931A'>{p['Prec']}</b><br>
-    Recall &nbsp;&nbsp;&nbsp;: <b style='color:#F7931A'>{p['Rec']}</b><br>
-    F1-Score &nbsp;: <b style='color:#F7931A'>{p['F1']}</b>
+    <div style='font-size:0.82rem;color:#aaa;line-height:2.0'>
+    Accuracy &nbsp;: <b style='color:#F7931A'>{MODEL_PERF['Acc']}</b><br>
+    Precision : <b style='color:#F7931A'>{MODEL_PERF['Prec']}</b><br>
+    Recall &nbsp;&nbsp;&nbsp;: <b style='color:#F7931A'>{MODEL_PERF['Rec']}</b><br>
+    F1-Score &nbsp;: <b style='color:#F7931A'>{MODEL_PERF['F1']}</b>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.caption("Tugas Akhir — Prediksi Arah Harga BTC menggunakan VMD + LSTM/RF/KNN")
+    st.caption("Tugas Akhir — Prediksi Arah Harga BTC menggunakan VMD + Random Forest")
 
 
 # ============================================================
@@ -393,7 +308,7 @@ st.markdown('<p class="sub-title">Prediksi arah harga Bitcoin untuk hari berikut
 with st.spinner("Mengambil data historis BTC dari Yahoo Finance..."):
     try:
         df_hist = fetch_historical_data()
-        last_date = df_hist.index[-1].strftime("%d %b %Y")
+        last_date  = df_hist.index[-1].strftime("%d %b %Y")
         last_close = df_hist["Close"].iloc[-1]
         st.markdown(f"""
         <div class="hist-box">
@@ -434,11 +349,9 @@ Data akan terisi otomatis, lalu model memprediksi apakah harga BTC akan
 st.markdown("### <span class='step-badge'>01</span> Pilih Tanggal Data", unsafe_allow_html=True)
 st.caption("Pilih tanggal dengan data OHLCV lengkap. Model akan memprediksi arah harga hari berikutnya.")
 
-# Daftar tanggal valid = semua tanggal di df_hist KECUALI hari ini
-# (closing hari ini belum tersedia sampai market tutup)
 today = pd.Timestamp.now().normalize()
 valid_dates = df_hist.index.normalize().unique().sort_values(ascending=False)
-valid_dates = valid_dates[valid_dates < today]  # exclude today
+valid_dates = valid_dates[valid_dates < today]
 valid_dates_list = [d.date() for d in valid_dates]
 
 selected_date = st.date_input(
@@ -450,8 +363,6 @@ selected_date = st.date_input(
     format="DD/MM/YYYY"
 )
 
-# Cek apakah tanggal dipilih ada di data historis
-# Jika tidak ada, otomatis snap ke tanggal valid terdekat sebelumnya
 selected_ts = pd.Timestamp(selected_date)
 if selected_ts not in df_hist.index:
     available_before = df_hist.index[df_hist.index < selected_ts]
@@ -464,7 +375,6 @@ if selected_ts not in df_hist.index:
         f"Menggunakan data terakhir yang tersedia: **{selected_ts.strftime('%d %b %Y')}**"
     )
 
-# Auto-fill OHLCV dari data historis
 row        = df_hist.loc[selected_ts]
 open_val   = float(row["Open"])
 high_val   = float(row["High"])
@@ -472,7 +382,6 @@ low_val    = float(row["Low"])
 close_val  = float(row["Close"])
 volume_val = float(row["Volume"])
 
-# Tampilkan OHLCV sebagai display-only
 st.markdown("<br>", unsafe_allow_html=True)
 col1, col2 = st.columns(2)
 
@@ -504,50 +413,30 @@ if submitted:
             # Load metadata
             meta, best_k_dict = load_metadata()
             ohlcv_cols = meta["ohlcv_cols"]
-            TIMESTEPS  = meta["timesteps"]
-            conf       = split_choice
-            safe_conf  = safe_filename(conf)
-            best_k     = best_k_dict.get(safe_conf) or best_k_dict.get(conf)
+            best_k     = best_k_dict.get(SAFE_SPLIT) or best_k_dict.get(SPLIT)
 
-            # Gunakan data historis s/d tanggal yang dipilih (inklusif)
             df_all = df_hist.loc[:selected_ts].copy()
 
-            # Hitung indikator teknikal
             feat = compute_features(df_all)
             feat = feat[ohlcv_cols].dropna().copy()
 
-            if len(feat) < TIMESTEPS:
-                st.error(f"❌ Data tidak cukup ({len(feat)} baris). Pilih tanggal yang lebih baru.")
+            if len(feat) < 1:
+                st.error("❌ Data tidak cukup untuk membuat fitur. Pilih tanggal yang lebih baru.")
                 st.stop()
 
-            # VMD
             vmd_df = apply_vmd_global(feat["Close"], K=best_k)
             vmd_df = vmd_df.loc[vmd_df.index.isin(feat.index)].dropna()
             feat   = feat.loc[vmd_df.index].copy()
 
-            # Gabungkan & normalisasi
             X_full   = pd.concat([feat[ohlcv_cols], vmd_df], axis=1)
-            scaler   = load_scaler(safe_conf)
+            scaler   = load_scaler()
             X_scaled = scaler.transform(X_full)
 
-            # Prediksi
-            if model_choice == "LSTM":
-                model = load_lstm(safe_conf)
-                if model is None:
-                    st.stop()
-                X_seq = make_sequence(X_scaled, TIMESTEPS)
-                prob  = float(model.predict(X_seq, verbose=0).flatten()[0])
-            elif model_choice == "Random Forest":
-                model = load_rf(safe_conf)
-                if model is None:
-                    st.stop()
-                prob  = float(model.predict_proba(X_scaled[[-1]])[0][1])
-            else:  # KNN
-                model = load_knn(safe_conf)
-                if model is None:
-                    st.stop()
-                prob  = float(model.predict_proba(X_scaled[[-1]])[0][1])
+            model = load_rf()
+            if model is None:
+                st.stop()
 
+            prob       = float(model.predict_proba(X_scaled[[-1]])[0][1])
             pred_label = 1 if prob >= 0.5 else 0
 
         except Exception as e:
@@ -593,12 +482,12 @@ if submitted:
     st.markdown(f"""
     <div class="metric-row">
         <div class="metric-card">
-            <div class="metric-val">{model_choice}</div>
+            <div class="metric-val">Random Forest</div>
             <div class="metric-lbl">Model</div>
         </div>
         <div class="metric-card">
-            <div class="metric-val">{conf}</div>
-            <div class="metric-lbl">Split Terbaik (Auto)</div>
+            <div class="metric-val">TS 70:30</div>
+            <div class="metric-lbl">Split Terbaik</div>
         </div>
         <div class="metric-card">
             <div class="metric-val">K={best_k}</div>
@@ -615,13 +504,14 @@ if submitted:
     </div>
     """, unsafe_allow_html=True)
 
+
 # ============================================================
 # FOOTER
 # ============================================================
 st.markdown("---")
 st.markdown(
     "<div style='text-align:center;font-size:0.75rem;color:#555;'>"
-    "Tugas Akhir — Prediksi Arah Harga BTC | VMD + LSTM / RF / KNN"
+    "Tugas Akhir — Prediksi Arah Harga BTC | VMD + Random Forest (Split 70:30)"
     "</div>",
     unsafe_allow_html=True
 )
