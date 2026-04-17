@@ -353,16 +353,23 @@ Data akan terisi otomatis, lalu model memprediksi apakah harga BTC akan
 st.markdown("### <span class='step-badge'>01</span> Pilih Tanggal Data", unsafe_allow_html=True)
 st.caption("Pilih tanggal dengan data OHLCV lengkap. Model akan memprediksi arah harga hari berikutnya.")
 
+# Tentukan "hari ini" dan "kemarin"
 today = pd.Timestamp.now().normalize()
+yesterday = (today - pd.Timedelta(days=1)).date()
+
+# Filter tanggal valid (sebelum hari ini)
 valid_dates = df_hist.index.normalize().unique().sort_values(ascending=False)
 valid_dates = valid_dates[valid_dates < today]
 valid_dates_list = [d.date() for d in valid_dates]
 
+# Jika data kemarin belum ada (karena delay Yahoo Finance), gunakan tanggal terbaru yang tersedia
+default_date = yesterday if yesterday in valid_dates_list else valid_dates_list[0]
+
 selected_date = st.date_input(
     "📅 Pilih Tanggal",
-    value=valid_dates_list[0],
+    value=default_date,
     min_value=valid_dates_list[-1],
-    max_value=(pd.Timestamp.now() - pd.Timedelta(days=1)).date(),
+    max_value=yesterday,
     help="Hanya tanggal dengan data penutupan lengkap yang tersedia",
     format="DD/MM/YYYY"
 )
