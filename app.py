@@ -325,7 +325,7 @@ BEST_SPLIT = {
 
 BEST_PERF = {
     "LSTM": {
-        "split": "TS 90:10", "Acc": "0.683", "Prec": "0.683", "Rec": "0.709", "F1": "0.695"
+        "split": "TS 90:10", "Acc": "0.666", "Prec": "0.72", "Rec": "0.566", "F1": "0.634"
     },
     "Random Forest": {
         "split": "TS 70:30", "Acc": "0.652", "Prec": "0.639", "Rec": "0.694", "F1": "0.666"
