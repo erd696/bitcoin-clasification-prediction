@@ -318,20 +318,20 @@ def load_knn(safe_conf):
 # KONFIGURASI BEST SPLIT PER MODEL (dari hasil eksperimen CSV)
 # ============================================================
 BEST_SPLIT = {
-    "LSTM":           "TS 90:10",   # F1: 0.6954
-    "Random Forest":  "TS 70:30",   # F1: 0.6656
-    "KNN":            "TS 70:30",   # F1: 0.6580
+    "LSTM":           "TS 80:20",
+    "Random Forest":  "TS 70:30",
+    "KNN":            "TS 90:10",
 }
 
 BEST_PERF = {
     "LSTM": {
-        "split": "TS 90:10", "Acc": "0.666", "Prec": "0.72", "Rec": "0.566", "F1": "0.634"
+        "split": "TS 80:20", "Acc": "0.608", "Prec": "0.585", "Rec": "0.841", "F1": "0.690"
     },
     "Random Forest": {
         "split": "TS 70:30", "Acc": "0.652", "Prec": "0.639", "Rec": "0.694", "F1": "0.666"
     },
     "KNN": {
-        "split": "TS 70:30", "Acc": "0.649", "Prec": "0.641", "Rec": "0.676", "F1": "0.658"
+        "split": "TS 70:10", "Acc": "0.681", "Prec": "0.741", "Rec": "0.588", "F1": "0.656"
     },
 }
 
