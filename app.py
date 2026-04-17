@@ -186,9 +186,13 @@ def fetch_historical_data():
             if attempt > 0:
                 time.sleep(8 * attempt)
 
+            START_DATE = "2014-09-17"
+            END_DATE = "2025-11-01"
+
             df = yf.download(
                 "BTC-USD",
-                period="max",
+                start=START_DATE,
+                end=END_DATE,
                 interval="1d",
                 auto_adjust=False,
                 progress=False
